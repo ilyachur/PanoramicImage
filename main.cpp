@@ -10,29 +10,62 @@
 
 using namespace cv;
 
-void readme();
-
-int main( int argc, char** argv ) {
-    if( argc < 3 ) {
-        std::cout << " Usage: PanoramicImage <img1> ... <imgN>" << std::endl;
-        return -1;
+Mat findRealSize(Mat& result) {
+    //std::cout << "result = \n" << result << std::endl << std::endl;
+    int realSize = result.cols;
+    for(int i = 0; i < result.cols; i++) {
+        if (result.at<Vec3b>(0, i) == Vec3b(0, 0, 0)) {
+            int j = i;
+            for(j = i; j < result.cols; j++) {
+                if (result.at<Vec3b>(0, j) != Vec3b(0, 0, 0))
+                    break;
+            }
+            if (j == result.cols) {
+                realSize = i;
+                break;
+            }
+        }
+        if (result.at<Vec3b>(result.rows - 1, i) == Vec3b(0, 0, 0)) {
+            int j = i;
+            for(j = i; j < result.cols; j++) {
+                if (result.at<Vec3b>(result.rows - 1, j) != Vec3b(0, 0, 0))
+                    break;
+            }
+            if (j == result.cols) {
+                realSize = i;
+                break;
+            }
+        }
     }
+    //warpPerspective(result,result,H,cv::Size(realSize,result.rows));
+    cv::Rect cutImage(0,0, realSize, result.rows);
+    return result(cutImage);
+}
 
-    // Load the images
-    Mat image1= imread( argv[2] );
-    Mat image2= imread( argv[1] );
+Mat imagesGlue(Mat& image1, Mat& image2, int defaultCompareSize) {
+    cv::Mat result;
+
+    int startX = image1.cols - defaultCompareSize*2;
+    if (startX < 0)
+        startX = 0;
+    cv::Rect prevImageRect(max(0, startX),0, image1.cols - max(0, startX), image1.rows);
+    std::cout << " Usage " << prevImageRect << std::endl;
+    Mat previouseImage(image1, prevImageRect);
+
+    cv::Rect nextImageRect(0,0, min(image2.cols, defaultCompareSize * 2), image2.rows);
+    std::cout << " Usage " << nextImageRect << std::endl;
+    Mat nextImage(image2, nextImageRect);
+
     Mat gray_image1;
     Mat gray_image2;
 
     // Convert to Grayscale
-    cvtColor( image1, gray_image1, CV_RGB2GRAY );
-    cvtColor( image2, gray_image2, CV_RGB2GRAY );
-    imshow("first image",image2);
-    imshow("second image",image1);
+    cvtColor( previouseImage, gray_image1, CV_RGB2GRAY );
+    cvtColor( nextImage, gray_image2, CV_RGB2GRAY );
 
     if( !gray_image1.data || !gray_image2.data ) {
         std::cout<< " --(!) Error reading images " << std::endl;
-        return -1;
+        return Mat();
     }
 
     //-- Step 1: Detect the keypoints using SURF Detector
@@ -41,16 +74,16 @@ int main( int argc, char** argv ) {
     SurfFeatureDetector detector(minHessian);
     std::vector< KeyPoint > keypoints_object, keypoints_scene;
 
-    detector.detect(gray_image1, keypoints_object);
-    detector.detect(gray_image2, keypoints_scene);
+    detector.detect(gray_image2, keypoints_object);
+    detector.detect(gray_image1, keypoints_scene);
 
     //-- Step 2: Calculate descriptors (feature vectors)
     SurfDescriptorExtractor extractor;
 
     Mat descriptors_object, descriptors_scene;
 
-    extractor.compute( gray_image1, keypoints_object, descriptors_object );
-    extractor.compute( gray_image2, keypoints_scene, descriptors_scene );
+    extractor.compute( gray_image2, keypoints_object, descriptors_object );
+    extractor.compute( gray_image1, keypoints_scene, descriptors_scene );
 
     //-- Step 3: Matching descriptor vectors using FLANN matcher
     FlannBasedMatcher matcher;
@@ -92,14 +125,46 @@ int main( int argc, char** argv ) {
     // Find the Homography Matrix
     Mat H = findHomography( obj, scene, CV_RANSAC );
     // Use the Homography Matrix to warp the images
-    cv::Mat result;
-    warpPerspective(image1,result,H,cv::Size(image1.cols+image2.cols,image1.rows));
-    cv::Mat half(result,cv::Rect(0,0,image2.cols,image2.rows));
-    image2.copyTo(half);
-    cv::Mat scaleResult;
-    cv::resize(result, scaleResult, cv::Size(result.cols / 3, result.rows / 3));
-    imshow( "Result", scaleResult );
+    warpPerspective(image2,result,H,cv::Size((image1.cols+image2.cols) * 5,image2.rows));
+    cv::Mat half(result,cv::Rect(0,0,image1.cols,image1.rows));
+    image1.copyTo(half);
 
+    return result;
+}
+
+int main( int argc, char** argv ) {
+    if( argc < 3 ) {
+        std::cout << " Usage: PanoramicImage <img1> ... <imgN>" << std::endl;
+        return -1;
+    }
+    cv::Mat result;
+
+
+    cv::Mat *results = new Mat[(argc + 1) / 3];
+    std::cout << (argc + 1) / 3 << " " << results << std::endl;
+
+    int defaultCompareSize = 0;
+    for (int iter = 0; iter < (argc + 1) / 3; iter++) {
+        for (int i = iter*3 + 2; i < (iter+1)*3 + 1 && i < argc; i++) {
+            // Load the images
+            Mat image1 = results[iter];
+            if(!image1.data)
+                image1 = imread( argv[i - 1] );
+            if (defaultCompareSize == 0)
+                defaultCompareSize = image1.cols;
+            Mat image2= imread( argv[i] );
+            Mat iterRes = imagesGlue(image1, image2, defaultCompareSize);
+            findRealSize(iterRes).copyTo(results[iter]);
+            if (!results[iter].data)
+                return -1;
+        }
+    }
+    imagesGlue(results[0], results[1], defaultCompareSize).copyTo(result);
+    //results[1].copyTo(result);
+    cv::Mat scaleResult;
+    cv::resize(result, scaleResult, cv::Size(result.cols / 6, result.rows / 6));
+    imshow( "Result", scaleResult );
     waitKey(0);
+
     return 0;
 }
