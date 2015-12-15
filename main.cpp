@@ -45,14 +45,14 @@ Mat findRealSize(Mat& result) {
 Mat imagesGlue(Mat& image1, Mat& image2, int defaultCompareSize) {
     cv::Mat result;
 
-    int startX = image1.cols - defaultCompareSize*2;
+    int startX = image1.cols - defaultCompareSize*4;
     if (startX < 0)
         startX = 0;
     cv::Rect prevImageRect(max(0, startX),0, image1.cols - max(0, startX), image1.rows);
     std::cout << " Usage " << prevImageRect << std::endl;
     Mat previouseImage(image1, prevImageRect);
 
-    cv::Rect nextImageRect(0,0, min(image2.cols, defaultCompareSize * 2), image2.rows);
+    cv::Rect nextImageRect(0,0, min(image2.cols, defaultCompareSize * 4), image2.rows);
     std::cout << " Usage " << nextImageRect << std::endl;
     Mat nextImage(image2, nextImageRect);
 
@@ -84,6 +84,11 @@ Mat imagesGlue(Mat& image1, Mat& image2, int defaultCompareSize) {
 
     extractor.compute( gray_image2, keypoints_object, descriptors_object );
     extractor.compute( gray_image1, keypoints_scene, descriptors_scene );
+
+    if ( descriptors_object.empty() )
+       cvError(0,"MatchFinder","descriptors_object empty",__FILE__,__LINE__);
+    if ( descriptors_scene.empty() )
+       cvError(0,"MatchFinder","descriptors_scene empty",__FILE__,__LINE__);
 
     //-- Step 3: Matching descriptor vectors using FLANN matcher
     FlannBasedMatcher matcher;
@@ -138,29 +143,32 @@ int main( int argc, char** argv ) {
         return -1;
     }
     cv::Mat result;
-
-
-    cv::Mat *results = new Mat[(argc + 1) / 3];
-    std::cout << (argc + 1) / 3 << " " << results << std::endl;
-
-    int defaultCompareSize = 0;
-    for (int iter = 0; iter < (argc + 1) / 3; iter++) {
-        for (int i = iter*3 + 2; i < (iter+1)*3 + 1 && i < argc; i++) {
-            // Load the images
-            Mat image1 = results[iter];
-            if(!image1.data)
-                image1 = imread( argv[i - 1] );
-            if (defaultCompareSize == 0)
-                defaultCompareSize = image1.cols;
-            Mat image2= imread( argv[i] );
-            Mat iterRes = imagesGlue(image1, image2, defaultCompareSize);
-            findRealSize(iterRes).copyTo(results[iter]);
-            if (!results[iter].data)
-                return -1;
-        }
+    if ((argc - 1) % 2 != 0) {
+        result = imread(argv[int((argc - 1) / 2) + 1]);
     }
-    imagesGlue(results[0], results[1], defaultCompareSize).copyTo(result);
-    //results[1].copyTo(result);
+    int defaultCompareSize = 0;
+    for (int i = (argc - 1) / 2; i >= 1; i--) {
+        std::cout << "images" << std::endl;
+        std::cout << i << std::endl;
+        std::cout << argc - i << std::endl;
+        std::cout << "images" << std::endl;
+        Mat image1 = imread(argv[i]);
+        if (defaultCompareSize == 0)
+            defaultCompareSize = image1.cols;
+        if (result.data) {
+            Mat tmpRes = imagesGlue(result, image1, defaultCompareSize);
+            findRealSize(tmpRes).copyTo(result);
+            if (!result.data)
+                return -1;
+            image1 = result;
+        }
+        Mat image2 = imread(argv[argc - i]);
+        Mat tmpRes = imagesGlue(image1, image2, defaultCompareSize);
+        findRealSize(tmpRes).copyTo(result);
+        if (!result.data)
+            return -1;
+    }
+
     cv::Mat scaleResult;
     cv::resize(result, scaleResult, cv::Size(result.cols / 6, result.rows / 6));
     imshow( "Result", scaleResult );
