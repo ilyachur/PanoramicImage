@@ -173,6 +173,7 @@ int main( int argc, char** argv ) {
     cv::resize(result, scaleResult, cv::Size(result.cols / 6, result.rows / 6));
     imshow( "Result", scaleResult );
     waitKey(0);
+    imwrite( "out.png", result );
 
     return 0;
 }
